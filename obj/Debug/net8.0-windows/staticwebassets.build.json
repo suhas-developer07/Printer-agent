@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "htgbZRJLG5Gz6MEocRsk3MWOQptpvVJY/vUIIJA+kGc=",
+  "Source": "PrintAgent",
+  "BasePath": "_content/PrintAgent",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}
