@@ -1,9 +1,11 @@
 using System.Drawing;
 using System.Drawing.Printing;
+using System.Drawing.Imaging;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using PdfiumViewer;
+using Docnet.Core;
+using Docnet.Core.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors();
@@ -47,6 +49,9 @@ app.MapPost("/print", async (HttpContext context) =>
             await file.CopyToAsync(stream);
         }
 
+        Console.WriteLine($"File saved to: {tempPath}");
+        Console.WriteLine($"File size: {new FileInfo(tempPath).Length} bytes");
+
         // Print the file
         var jobId = await PrintFileAsync(tempPath, options, file.FileName);
 
@@ -61,6 +66,8 @@ app.MapPost("/print", async (HttpContext context) =>
     }
     catch (Exception ex)
     {
+        Console.WriteLine($"Error: {ex.Message}");
+        Console.WriteLine($"Stack: {ex.StackTrace}");
         return Results.Problem(detail: ex.Message, statusCode: 500);
     }
 });
@@ -75,23 +82,38 @@ static async Task<string> PrintFileAsync(string filePath, PrintOptions options, 
         var extension = Path.GetExtension(filePath).ToLower();
         var jobId = Guid.NewGuid().ToString();
 
-        switch (extension)
+        Console.WriteLine($"Processing file: {fileName} (Type: {extension})");
+        Console.WriteLine($"Printer: {options.PrinterName ?? "Default"}");
+
+        try
         {
-            case ".pdf":
-                PrintPdf(filePath, options);
-                break;
-            case ".txt":
-                PrintTextFile(filePath, options);
-                break;
-            case ".jpg":
-            case ".jpeg":
-            case ".png":
-            case ".bmp":
-            case ".gif":
-                PrintImage(filePath, options);
-                break;
-            default:
-                throw new NotSupportedException($"File type {extension} is not supported");
+            switch (extension)
+            {
+                case ".pdf":
+                    PrintPdf(filePath, options);
+                    break;
+                case ".txt":
+                    PrintTextFile(filePath, options);
+                    break;
+                case ".jpg":
+                case ".jpeg":
+                case ".png":
+                case ".bmp":
+                case ".gif":
+                case ".tif":
+                case ".tiff":
+                    PrintImage(filePath, options);
+                    break;
+                default:
+                    throw new NotSupportedException($"File type {extension} is not supported. Supported types: PDF, TXT, JPG, PNG, BMP, GIF, TIF");
+            }
+
+            Console.WriteLine($"Print job submitted successfully. Job ID: {jobId}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Print error: {ex.Message}");
+            throw;
         }
 
         return jobId;
@@ -100,37 +122,89 @@ static async Task<string> PrintFileAsync(string filePath, PrintOptions options, 
 
 static void PrintPdf(string pdfPath, PrintOptions options)
 {
-    using var document = PdfDocument.Load(pdfPath);
-    using var printDoc = new PrintDocument();
+    Console.WriteLine("Loading PDF document...");
     
-    ConfigurePrintSettings(printDoc, options);
+    var bitmaps = new List<Bitmap>();
     
-    var pageIndex = 0;
-    var pagesToPrint = GetPagesToPrint(options.PageRange ?? "all", document.PageCount);
-
-    printDoc.PrintPage += (sender, e) =>
+    try
     {
-        if (e == null || e.Graphics == null) return;
+        using var library = DocLib.Instance;
+        using var docReader = library.GetDocReader(pdfPath, new PageDimensions(1920, 1920));
         
-        if (pageIndex < pagesToPrint.Count)
+        var pageCount = docReader.GetPageCount();
+        Console.WriteLine($"PDF has {pageCount} pages");
+        
+        var pagesToPrint = GetPagesToPrint(options.PageRange ?? "all", pageCount);
+        Console.WriteLine($"Will print {pagesToPrint.Count} pages: {string.Join(", ", pagesToPrint.Select(p => p + 1))}");
+        
+        // Render each page to bitmap
+        foreach (var pageNumber in pagesToPrint)
         {
-            var currentPage = pagesToPrint[pageIndex];
-            using var image = document.Render(currentPage, 300, 300, true);
-            e.Graphics.DrawImage(image, e.PageBounds);
-            pageIndex++;
-            e.HasMorePages = pageIndex < pagesToPrint.Count;
+            Console.WriteLine($"Rendering page {pageNumber + 1}...");
+            using var pageReader = docReader.GetPageReader(pageNumber);
+            var rawBytes = pageReader.GetImage();
+            var width = pageReader.GetPageWidth();
+            var height = pageReader.GetPageHeight();
+            
+            var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            var bitmapData = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, bitmap.PixelFormat);
+            
+            try
+            {
+                System.Runtime.InteropServices.Marshal.Copy(rawBytes, 0, bitmapData.Scan0, rawBytes.Length);
+            }
+            finally
+            {
+                bitmap.UnlockBits(bitmapData);
+            }
+            
+            bitmaps.Add(bitmap);
         }
-        else
+        
+        // Now print all bitmaps
+        using var printDoc = new PrintDocument();
+        ConfigurePrintSettings(printDoc, options);
+        
+        var pageIndex = 0;
+        
+        printDoc.PrintPage += (sender, e) =>
         {
-            e.HasMorePages = false;
+            if (e == null || e.Graphics == null) return;
+            
+            if (pageIndex < bitmaps.Count)
+            {
+                var bitmap = bitmaps[pageIndex];
+                var pageRect = e.PageBounds;
+                var imgRect = GetScaledImageRectangle(bitmap, pageRect);
+                
+                e.Graphics.DrawImage(bitmap, imgRect);
+                
+                Console.WriteLine($"Printing page {pagesToPrint[pageIndex] + 1}...");
+                pageIndex++;
+                e.HasMorePages = pageIndex < bitmaps.Count;
+            }
+            else
+            {
+                e.HasMorePages = false;
+            }
+        };
+        
+        printDoc.Print();
+        Console.WriteLine("PDF print job completed");
+    }
+    finally
+    {
+        // Cleanup bitmaps
+        foreach (var bitmap in bitmaps)
+        {
+            bitmap.Dispose();
         }
-    };
-
-    printDoc.Print();
+    }
 }
 
 static void PrintTextFile(string textPath, PrintOptions options)
 {
+    Console.WriteLine("Printing text file...");
     var lines = File.ReadAllLines(textPath);
     var lineIndex = 0;
 
@@ -159,10 +233,12 @@ static void PrintTextFile(string textPath, PrintOptions options)
     };
 
     printDoc.Print();
+    Console.WriteLine("Text file print job completed");
 }
 
 static void PrintImage(string imagePath, PrintOptions options)
 {
+    Console.WriteLine("Printing image file...");
     using var image = Image.FromFile(imagePath);
     using var printDoc = new PrintDocument();
     
@@ -171,26 +247,69 @@ static void PrintImage(string imagePath, PrintOptions options)
     printDoc.PrintPage += (sender, e) =>
     {
         if (e == null || e.Graphics == null) return;
-        e.Graphics.DrawImage(image, e.PageBounds);
+        
+        var pageRect = e.PageBounds;
+        var imgRect = GetScaledImageRectangle(image, pageRect);
+        
+        e.Graphics.DrawImage(image, imgRect);
         e.HasMorePages = false;
     };
 
     printDoc.Print();
+    Console.WriteLine("Image print job completed");
+}
+
+static Rectangle GetScaledImageRectangle(Image image, Rectangle pageRect)
+{
+    var pageWidth = pageRect.Width;
+    var pageHeight = pageRect.Height;
+    var imgWidth = image.Width;
+    var imgHeight = image.Height;
+    
+    // Calculate scaling factor
+    var scaleX = (float)pageWidth / imgWidth;
+    var scaleY = (float)pageHeight / imgHeight;
+    var scale = Math.Min(scaleX, scaleY);
+    
+    // Calculate new dimensions
+    var newWidth = (int)(imgWidth * scale);
+    var newHeight = (int)(imgHeight * scale);
+    
+    // Center the image
+    var x = pageRect.X + (pageWidth - newWidth) / 2;
+    var y = pageRect.Y + (pageHeight - newHeight) / 2;
+    
+    return new Rectangle(x, y, newWidth, newHeight);
 }
 
 static void ConfigurePrintSettings(PrintDocument printDoc, PrintOptions options)
 {
+    Console.WriteLine("Configuring print settings...");
+    
     // Set printer name
     if (!string.IsNullOrEmpty(options.PrinterName))
     {
         printDoc.PrinterSettings.PrinterName = options.PrinterName;
+        Console.WriteLine($"Printer: {options.PrinterName}");
+    }
+    else
+    {
+        Console.WriteLine($"Using default printer: {printDoc.PrinterSettings.PrinterName}");
+    }
+
+    // Verify printer exists
+    if (!printDoc.PrinterSettings.IsValid)
+    {
+        throw new Exception($"Printer '{printDoc.PrinterSettings.PrinterName}' is not valid or not found");
     }
 
     // Set number of copies
     printDoc.PrinterSettings.Copies = (short)options.Copies;
+    Console.WriteLine($"Copies: {options.Copies}");
 
     // Set color
     printDoc.DefaultPageSettings.Color = options.Color;
+    Console.WriteLine($"Color: {options.Color}");
 
     // Set duplex mode
     var duplexMode = (options.Duplex ?? "simplex").ToLower();
@@ -200,6 +319,7 @@ static void ConfigurePrintSettings(PrintDocument printDoc, PrintOptions options)
         "horizontal" => Duplex.Horizontal,
         _ => Duplex.Simplex
     };
+    Console.WriteLine($"Duplex: {duplexMode}");
 
     // Set paper size
     var paperSizeName = options.PaperSize ?? "A4";
@@ -209,6 +329,7 @@ static void ConfigurePrintSettings(PrintDocument printDoc, PrintOptions options)
             paperSize.PaperName.Equals(paperSizeName, StringComparison.OrdinalIgnoreCase))
         {
             printDoc.DefaultPageSettings.PaperSize = paperSize;
+            Console.WriteLine($"Paper Size: {paperSize.PaperName}");
             break;
         }
     }
@@ -216,6 +337,7 @@ static void ConfigurePrintSettings(PrintDocument printDoc, PrintOptions options)
     // Set orientation
     var orientation = (options.Orientation ?? "portrait").ToLower();
     printDoc.DefaultPageSettings.Landscape = orientation == "landscape";
+    Console.WriteLine($"Orientation: {orientation}");
 }
 
 static List<int> GetPagesToPrint(string pageRange, int totalPages)

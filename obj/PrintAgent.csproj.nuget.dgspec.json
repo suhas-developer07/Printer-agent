@@ -45,13 +45,17 @@
         "net8.0-windows7.0": {
           "targetAlias": "net8.0-windows",
           "dependencies": {
+            "Docnet.Core": {
+              "target": "Package",
+              "version": "[2.6.0, )"
+            },
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
               "version": "[8.0.0, )"
             },
-            "PdfiumViewer": {
+            "System.Drawing.Common": {
               "target": "Package",
-              "version": "[2.13.0, )"
+              "version": "[8.0.0, )"
             }
           },
           "imports": [
