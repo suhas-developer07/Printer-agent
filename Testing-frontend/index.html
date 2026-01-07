@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Print Agent Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #667eea;
+            border-radius: 10px;
+            background: #f8f9ff;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        select, input[type="number"], input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: #f8f9ff;
+            border-radius: 10px;
+        }
+        
+        input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .printers-list {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9ff;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 25px;
+            font-size: 13px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖨️ Print Agent Tester</h1>
+        <p class="subtitle">Test your local print agent</p>
+        
+        <div class="info-box">
+            <strong>⚠️ Important:</strong> Make sure your Print Agent is running on port 8765
+        </div>
+        
+        <button onclick="getPrinters()" style="background: #28a745; margin-bottom: 15px;">
+            🔍 Load Available Printers
+        </button>
+        <div id="printersList" class="printers-list" style="display: none;"></div>
+        
+        <form id="printForm">
+            <div class="section">
+                <label for="file">📄 Select File to Print</label>
+                <input type="file" id="file" required accept=".pdf,.txt,.jpg,.jpeg,.png,.bmp,.gif">
+            </div>
+            
+            <div class="section">
+                <label for="printerName">🖨️ Printer Name (leave empty for default)</label>
+                <input type="text" id="printerName" placeholder="e.g., HP LaserJet Pro">
+            </div>
+            
+            <div class="section grid">
+                <div>
+                    <label for="copies">📋 Number of Copies</label>
+                    <input type="number" id="copies" value="1" min="1" max="100">
+                </div>
+                <div>
+                    <label for="paperSize">📏 Paper Size</label>
+                    <select id="paperSize">
+                        <option value="A4">A4</option>
+                        <option value="Letter">Letter</option>
+                        <option value="Legal">Legal</option>
+                        <option value="A3">A3</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="section grid">
+                <div>
+                    <label for="duplex">🔄 Duplex Mode</label>
+                    <select id="duplex">
+                        <option value="simplex">Single-sided</option>
+                        <option value="vertical">Duplex Vertical</option>
+                        <option value="horizontal">Duplex Horizontal</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="orientation">📱 Orientation</label>
+                    <select id="orientation">
+                        <option value="portrait">Portrait</option>
+                        <option value="landscape">Landscape</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="section">
+                <label for="pageRange">📃 Page Range</label>
+                <input type="text" id="pageRange" value="all" placeholder="e.g., all or 1-5,7,9-12">
+            </div>
+            
+            <div class="section grid">
+                <div>
+                    <label for="scale">📐 Scale</label>
+                    <select id="scale">
+                        <option value="fit">Fit to Printable Area</option>
+                        <option value="actual">Actual Size</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="pagesPerSheet">📄 Pages per Sheet</label>
+                    <select id="pagesPerSheet">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="4">4</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="section">
+                <label for="quality">🎯 Print Quality (DPI)</label>
+                <select id="quality">
+                    <option value="300">300 DPI (Draft)</option>
+                    <option value="600" selected>600 DPI (High Quality)</option>
+                    <option value="1200">1200 DPI (Best)</option>
+                </select>
+            </div>
+            
+            <div class="section">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="color">
+                    <label for="color" style="margin: 0;">🎨 Print in Color</label>
+                </div>
+            </div>
+            
+            <button type="submit" id="submitBtn">🚀 Send to Printer</button>
+        </form>
+        
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8765';
+        
+        async function getPrinters() {
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ Loading...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch(`${API_URL}/printers`);
+                const data = await response.json();
+                
+                const printersList = document.getElementById('printersList');
+                if (data.printers && data.printers.length > 0) {
+                    printersList.innerHTML = `<strong>Available Printers:</strong><br>${data.printers.join('<br>')}`;
+                    printersList.style.display = 'block';
+                } else {
+                    printersList.innerHTML = '<strong>No printers found</strong>';
+                    printersList.style.display = 'block';
+                }
+            } catch (error) {
+                showResult(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+        
+        document.getElementById('printForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.textContent = '⏳ Printing...';
+            submitBtn.disabled = true;
+            
+            const formData = new FormData();
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('Please select a file', 'error');
+                submitBtn.textContent = '🚀 Send to Printer';
+                submitBtn.disabled = false;
+                return;
+            }
+            
+            formData.append('file', file);
+            
+            const options = {
+                printerName: document.getElementById('printerName').value,
+                copies: parseInt(document.getElementById('copies').value),
+                color: document.getElementById('color').checked,
+                duplex: document.getElementById('duplex').value,
+                pageRange: document.getElementById('pageRange').value,
+                paperSize: document.getElementById('paperSize').value,
+                orientation: document.getElementById('orientation').value,
+                scale: document.getElementById('scale').value,
+                pagesPerSheet: parseInt(document.getElementById('pagesPerSheet').value),
+                quality: parseInt(document.getElementById('quality').value)
+            };
+            
+            const optionsJson = JSON.stringify(options);
+            console.log('Sending options:', optionsJson);
+            formData.append('options', optionsJson);
+            
+            try {
+                const response = await fetch(`${API_URL}/print`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Success! Job ID: ${result.jobId}`, 'success');
+                } else {
+                    showResult(`❌ Error: ${result.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                submitBtn.textContent = '🚀 Send to Printer';
+                submitBtn.disabled = false;
+            }
+        });
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                resultDiv.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

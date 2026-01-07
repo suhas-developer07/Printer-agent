@@ -123,12 +123,15 @@ static void PrintPdf(string pdfPath, PrintOptions options)
     try
     {
         using var library = DocLib.Instance;
-        using var docReader = library.GetDocReader(pdfPath, new PageDimensions(2400, 2400));
+        
+        // Use Quality setting for DPI
+        var dpi = options.Quality > 0 ? options.Quality : 600;
+        using var docReader = library.GetDocReader(pdfPath, new PageDimensions(dpi * 11, dpi * 17)); // ~A4 size at DPI
         
         var pageCount = docReader.GetPageCount();
         var pagesToPrint = GetPagesToPrint(options.PageRange ?? "all", pageCount);
         
-        Console.WriteLine($"Rendering {pagesToPrint.Count} of {pageCount} pages...");
+        Console.WriteLine($"Rendering {pagesToPrint.Count} of {pageCount} pages at {dpi} DPI...");
         
         foreach (var pageNumber in pagesToPrint)
         {
@@ -223,24 +226,58 @@ static void PrintBitmapsWithSettings(List<Bitmap> bitmaps, PrintOptions options,
     ApplyPrinterSettings(printDoc, options);
     
     var pageIndex = 0;
+    var pagesPerSheet = options.PagesPerSheet > 0 ? options.PagesPerSheet : 1;
+    var currentSheetPage = 0;
     
     printDoc.PrintPage += (sender, e) =>
     {
         if (e?.Graphics == null) return;
         
-        if (pageIndex < bitmaps.Count)
+        // Set high quality rendering
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        e.Graphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+        
+        if (pagesPerSheet == 1)
         {
-            var bitmap = bitmaps[pageIndex];
-            var imgRect = GetScaledImageRectangle(bitmap, e.PageBounds);
-            e.Graphics.DrawImage(bitmap, imgRect);
-            
-            Console.WriteLine($"Printed page {pageNumbers[pageIndex] + 1}");
-            pageIndex++;
-            e.HasMorePages = pageIndex < bitmaps.Count;
+            // Single page per sheet
+            if (pageIndex < bitmaps.Count)
+            {
+                var bitmap = bitmaps[pageIndex];
+                var imgRect = GetScaledImageRectangle(bitmap, e.PageBounds, options.Scale);
+                e.Graphics.DrawImage(bitmap, imgRect);
+                
+                Console.WriteLine($"Printed page {pageNumbers[pageIndex] + 1}");
+                pageIndex++;
+                e.HasMorePages = pageIndex < bitmaps.Count;
+            }
+            else
+            {
+                e.HasMorePages = false;
+            }
         }
         else
         {
-            e.HasMorePages = false;
+            // Multiple pages per sheet (2 or 4)
+            var pagesToPrintOnSheet = Math.Min(pagesPerSheet, bitmaps.Count - pageIndex);
+            var layout = GetPagesPerSheetLayout(pagesPerSheet, e.PageBounds);
+            
+            for (int i = 0; i < pagesToPrintOnSheet; i++)
+            {
+                if (pageIndex + i < bitmaps.Count)
+                {
+                    var bitmap = bitmaps[pageIndex + i];
+                    var cellRect = layout[i];
+                    var imgRect = GetScaledImageRectangle(bitmap, cellRect, options.Scale);
+                    e.Graphics.DrawImage(bitmap, imgRect);
+                    
+                    Console.WriteLine($"Printed page {pageNumbers[pageIndex + i] + 1} (position {i + 1}/{pagesPerSheet})");
+                }
+            }
+            
+            pageIndex += pagesToPrintOnSheet;
+            e.HasMorePages = pageIndex < bitmaps.Count;
         }
     };
     
@@ -311,6 +348,15 @@ static void ApplyPrinterSettings(PrintDocument printDoc, PrintOptions options)
             devMode.dmFields |= Win32.DM_ORIENTATION;
             Console.WriteLine($"✓ Orientation: {orientation}");
 
+            // Set print quality (DPI)
+            devMode.dmPrintQuality = (short)options.Quality;
+            devMode.dmFields |= Win32.DM_PRINTQUALITY;
+            Console.WriteLine($"✓ Quality: {options.Quality} DPI");
+
+            // Set scale (handled in rendering, but log it)
+            Console.WriteLine($"✓ Scale: {options.Scale ?? "fit"}");
+            Console.WriteLine($"✓ Pages per sheet: {options.PagesPerSheet}");
+
             // Write back DEVMODE
             Marshal.StructureToPtr(devMode, pDevMode, true);
             
@@ -358,14 +404,54 @@ static void ApplyBasicSettings(PrintDocument printDoc, PrintOptions options)
     printDoc.DefaultPageSettings.Landscape = (options.Orientation ?? "portrait").ToLower() == "landscape";
 }
 
-static Rectangle GetScaledImageRectangle(Image image, Rectangle pageRect)
+static Rectangle GetScaledImageRectangle(Image image, Rectangle pageRect, string? scaleMode = "fit")
 {
-    var scale = Math.Min((float)pageRect.Width / image.Width, (float)pageRect.Height / image.Height);
+    var scale = scaleMode?.ToLower() == "actual" ? 1.0f : 
+                Math.Min((float)pageRect.Width / image.Width, (float)pageRect.Height / image.Height);
+    
     var newWidth = (int)(image.Width * scale);
     var newHeight = (int)(image.Height * scale);
-    var x = pageRect.X + (pageRect.Width - newWidth) / 2;
-    var y = pageRect.Y + (pageRect.Height - newHeight) / 2;
+    
+    // Add margins (similar to Windows default - 0.25 inch margins)
+    var marginX = (int)(pageRect.Width * 0.02); // ~2% margin
+    var marginY = (int)(pageRect.Height * 0.02);
+    
+    // Center the image with margins
+    var x = pageRect.X + marginX + (pageRect.Width - 2 * marginX - newWidth) / 2;
+    var y = pageRect.Y + marginY + (pageRect.Height - 2 * marginY - newHeight) / 2;
+    
     return new Rectangle(x, y, newWidth, newHeight);
+}
+
+static List<Rectangle> GetPagesPerSheetLayout(int pagesPerSheet, Rectangle pageRect)
+{
+    var layout = new List<Rectangle>();
+    
+    if (pagesPerSheet == 2)
+    {
+        // 2 pages: side by side or top/bottom based on orientation
+        var halfWidth = pageRect.Width / 2;
+        layout.Add(new Rectangle(pageRect.X, pageRect.Y, halfWidth, pageRect.Height));
+        layout.Add(new Rectangle(pageRect.X + halfWidth, pageRect.Y, halfWidth, pageRect.Height));
+    }
+    else if (pagesPerSheet == 4)
+    {
+        // 4 pages: 2x2 grid
+        var halfWidth = pageRect.Width / 2;
+        var halfHeight = pageRect.Height / 2;
+        
+        layout.Add(new Rectangle(pageRect.X, pageRect.Y, halfWidth, halfHeight));
+        layout.Add(new Rectangle(pageRect.X + halfWidth, pageRect.Y, halfWidth, halfHeight));
+        layout.Add(new Rectangle(pageRect.X, pageRect.Y + halfHeight, halfWidth, halfHeight));
+        layout.Add(new Rectangle(pageRect.X + halfWidth, pageRect.Y + halfHeight, halfWidth, halfHeight));
+    }
+    else
+    {
+        // Default: 1 page
+        layout.Add(pageRect);
+    }
+    
+    return layout;
 }
 
 static List<int> GetPagesToPrint(string pageRange, int totalPages)
@@ -404,6 +490,9 @@ class PrintOptions
     public string? PageRange { get; set; } = "all";
     public string? PaperSize { get; set; } = "A4";
     public string? Orientation { get; set; } = "portrait";
+    public string? Scale { get; set; } = "fit"; // "fit" or "actual"
+    public int PagesPerSheet { get; set; } = 1; // 1, 2, or 4
+    public int Quality { get; set; } = 600; // DPI: 300 or 600
 }
 
 // Win32 API Declarations
@@ -425,6 +514,7 @@ static class Win32
     public const int DM_DUPLEX = 0x00001000;
     public const int DM_COLOR = 0x00000800;
     public const int DM_ORIENTATION = 0x00000001;
+    public const int DM_PRINTQUALITY = 0x00000400;
     
     public const short DMDUP_SIMPLEX = 1;
     public const short DMDUP_VERTICAL = 2;
