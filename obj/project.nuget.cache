@@ -1,12 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "RbOjEnRUuzA=",
+  "dgSpecHash": "yLI/vvzHws0=",
   "success": true,
   "projectFilePath": "C:\\Users\\SUHAS S\\PrintAgent\\PrintAgent.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\SUHAS S\\.nuget\\packages\\docnet.core\\2.6.0\\docnet.core.2.6.0.nupkg.sha512",
-    "C:\\Users\\SUHAS S\\.nuget\\packages\\microsoft.aspnetcore.openapi\\8.0.0\\microsoft.aspnetcore.openapi.8.0.0.nupkg.sha512",
-    "C:\\Users\\SUHAS S\\.nuget\\packages\\microsoft.openapi\\1.4.3\\microsoft.openapi.1.4.3.nupkg.sha512",
     "C:\\Users\\SUHAS S\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
     "C:\\Users\\SUHAS S\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512"
   ],

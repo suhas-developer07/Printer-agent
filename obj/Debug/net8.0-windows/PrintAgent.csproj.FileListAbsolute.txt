@@ -3,7 +3,6 @@ C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\PrintAgent.GeneratedMSBuild
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\PrintAgent.AssemblyInfoInputs.cache
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\PrintAgent.AssemblyInfo.cs
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\PrintAgent.csproj.CoreCompileInputs.cache
-C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\PrintAgent.MvcApplicationPartsAssemblyInfo.cs
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\PrintAgent.MvcApplicationPartsAssemblyInfo.cache
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\appsettings.Development.json
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\appsettings.json
@@ -12,8 +11,6 @@ C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\PrintAgent.deps.json
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\PrintAgent.runtimeconfig.json
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\PrintAgent.dll
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\PrintAgent.pdb
-C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\Microsoft.AspNetCore.OpenApi.dll
-C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\Microsoft.OpenApi.dll
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\staticwebassets.build.json
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\staticwebassets.development.json
 C:\Users\SUHAS S\PrintAgent\obj\Debug\net8.0-windows\staticwebassets\msbuild.PrintAgent.Microsoft.AspNetCore.StaticWebAssets.props

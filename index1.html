@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🖨️ WebSocket Print Agent Tester</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+  }
+
+  .left {
+    flex: 1;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .card {
+    background: #1a1d2e;
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid #2a2d3e;
+  }
+
+  .card h2 {
+    font-size: 15px;
+    color: #7c8aff;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .conn-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .conn-bar input {
+    flex: 1;
+    background: #12141f;
+    border: 1px solid #2a2d3e;
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+  .conn-bar input:focus { outline: none; border-color: #7c8aff; }
+
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 6px #ef4444;
+    transition: all 0.3s;
+  }
+  .dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+
+  .btn {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .btn-primary { background: #7c8aff; color: #fff; }
+  .btn-success { background: #22c55e; color: #fff; width: 100%; padding: 12px; font-size: 15px; }
+
+  .form-row {
+    display: flex;
+    gap: 10px;
+  }
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+  }
+  .form-group label {
+    font-size: 12px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .form-group input, .form-group select {
+    background: #12141f;
+    border: 1px solid #2a2d3e;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+  .form-group input:focus, .form-group select:focus { outline: none; border-color: #7c8aff; }
+  .form-group select option { background: #1a1d2e; }
+
+  .path-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .path-row input {
+    flex: 1;
+    background: #12141f;
+    border: 1px solid #2a2d3e;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-family: 'Consolas', monospace;
+  }
+  .path-row input:focus { outline: none; border-color: #7c8aff; }
+  .path-row input::placeholder { color: #3b3f5c; }
+
+  .path-hint {
+    font-size: 11px;
+    color: #3b3f5c;
+    margin-top: 6px;
+  }
+  .path-hint span { color: #7c8aff; }
+
+  /* RIGHT PANEL */
+  .right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .log-header h2 {
+    font-size: 15px;
+    color: #7c8aff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .btn-clear {
+    background: transparent;
+    border: 1px solid #2a2d3e;
+    color: #64748b;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-clear:hover { border-color: #ef4444; color: #ef4444; }
+
+  .log-box {
+    background: #12141f;
+    border: 1px solid #2a2d3e;
+    border-radius: 12px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 400px;
+    max-height: calc(100vh - 100px);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+
+  .log-entry .time {
+    color: #3b3f5c;
+    font-size: 11px;
+    white-space: nowrap;
+    padding-top: 1px;
+    min-width: 80px;
+  }
+
+  .log-entry .badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    min-width: 72px;
+    text-align: center;
+  }
+
+  .log-entry .text { flex: 1; line-height: 1.4; word-break: break-all; }
+
+  .badge-info { background: #1e3a5f; color: #60a5fa; }
+  .badge-success { background: #14532d; color: #4ade80; }
+  .badge-error { background: #450a0a; color: #f87171; }
+  .badge-warn { background: #422006; color: #fb923c; }
+  .badge-ws { background: #2e1065; color: #c084fc; }
+  .badge-page { background: #1e3a8a; color: #93c5fd; }
+
+  .log-info { background: #141623; }
+  .log-success { background: #0f1f14; }
+  .log-error { background: #1f0f0f; }
+  .log-warn { background: #1f1510; }
+  .log-ws { background: #1a1530; }
+  .log-page { background: #0f1628; }
+
+  .raw-json {
+    background: #0a0c14;
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #64748b;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .raw-json.visible { display: block; }
+  .toggle-raw {
+    font-size: 11px;
+    color: #7c8aff;
+    cursor: pointer;
+    margin-top: 4px;
+    background: none;
+    border: none;
+  }
+  .toggle-raw:hover { color: #a5b4fc; }
+
+  .empty-log {
+    color: #2a2d3e;
+    text-align: center;
+    padding: 40px 0;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<div class="left">
+
+  <!-- Connection -->
+  <div class="card">
+    <h2>🔌 Connection</h2>
+    <div class="conn-bar">
+      <div class="dot" id="dot"></div>
+      <input type="text" id="wsUrl" value="ws://localhost:8765/ws">
+      <button class="btn btn-primary" id="btnConnect" onclick="toggleConnect()">Connect</button>
+    </div>
+  </div>
+
+  <!-- File Path -->
+  <div class="card">
+    <h2>📄 File Path</h2>
+    <div class="path-row">
+      <input type="text" id="filePath" placeholder="C:\Users\SUHAS S\Desktop\Resume.pdf">
+    </div>
+    <div class="path-hint">
+      Enter the <span>full local path</span> of the file on this machine.<br>
+      Example: <span>C:\Users\YourName\Desktop\file.pdf</span>
+    </div>
+  </div>
+
+  <!-- Options -->
+  <div class="card">
+    <h2>⚙️ Print Options</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Copies</label>
+        <input type="number" id="copies" value="1" min="1" max="999">
+      </div>
+      <div class="form-group">
+        <label>Duplex</label>
+        <select id="duplex">
+          <option value="simplex">Single Sided</option>
+          <option value="vertical">Duplex Vertical</option>
+          <option value="horizontal">Duplex Horizontal</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:10px;">
+      <div class="form-group">
+        <label>Page Range</label>
+        <input type="text" id="pageRange" value="all" placeholder="all, 1-3, 1,3,5">
+      </div>
+      <div class="form-group">
+        <label>Pages / Sheet</label>
+        <select id="pagesPerSheet">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Send -->
+  <button class="btn btn-success" id="btnSend" onclick="sendJob()" disabled>🚀 Send Print Job</button>
+
+</div>
+
+<!-- RIGHT -->
+<div class="right">
+  <div class="log-header">
+    <h2>📡 Live Log</h2>
+    <button class="btn-clear" onclick="clearLog()">Clear</button>
+  </div>
+  <div class="log-box" id="logBox">
+    <div class="empty-log" id="emptyMsg">No messages yet. Connect and send a job.</div>
+  </div>
+</div>
+
+<script>
+let ws = null;
+
+// ============ CONNECTION ============
+function toggleConnect() {
+  if (ws && ws.readyState === WebSocket.OPEN) { disconnectWs(); return; }
+  connectWs();
+}
+
+function connectWs() {
+  const url = document.getElementById('wsUrl').value.trim();
+  log('info', 'Connecting to ' + url + '...');
+  try {
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+      setConnected(true);
+      log('ws', 'WebSocket connected successfully');
+    };
+    ws.onmessage = (e) => {
+      log('ws', 'Raw received: ' + e.data);
+      try {
+        const msg = JSON.parse(e.data);
+        handleMessage(msg);
+      } catch { log('error', 'Failed to parse: ' + e.data); }
+    };
+    ws.onerror = () => {
+      log('error', 'WebSocket error. Check if C# agent is running on port 8765.');
+      setConnected(false);
+    };
+    ws.onclose = (e) => {
+      log('warn', `Closed — Code: ${e.code}, Reason: ${e.reason || 'none'}`);
+      setConnected(false);
+    };
+  } catch (e) {
+    log('error', 'Connection failed: ' + e.message);
+  }
+}
+
+function disconnectWs() {
+  if (ws) { ws.close(); ws = null; }
+  setConnected(false);
+  log('warn', 'Disconnected');
+}
+
+function setConnected(connected) {
+  document.getElementById('dot').className = 'dot' + (connected ? ' connected' : '');
+  document.getElementById('btnConnect').textContent = connected ? 'Disconnect' : 'Connect';
+  updateSendBtn();
+}
+
+function updateSendBtn() {
+  const connected = ws && ws.readyState === WebSocket.OPEN;
+  const hasPath = document.getElementById('filePath').value.trim().length > 0;
+  document.getElementById('btnSend').disabled = !(connected && hasPath);
+}
+
+document.getElementById('filePath').addEventListener('input', updateSendBtn);
+
+// ============ SEND JOB ============
+function sendJob() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) { log('error', 'Not connected'); return; }
+
+  const filePath = document.getElementById('filePath').value.trim();
+  if (!filePath) { log('error', 'File path is empty'); return; }
+
+  const payload = {
+    file_path: filePath,
+    copies: parseInt(document.getElementById('copies').value) || 1,
+    duplex: document.getElementById('duplex').value,
+    page_range: document.getElementById('pageRange').value,
+    pages_per_sheet: parseInt(document.getElementById('pagesPerSheet').value) || 1
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+  log('info', 'Sending payload...', json);
+  ws.send(JSON.stringify(payload));
+}
+
+// ============ HANDLE MESSAGES ============
+function handleMessage(msg) {
+  const raw = JSON.stringify(msg, null, 2);
+  switch (msg.type) {
+    case 'status':
+      if (msg.statusCode === 'data_received')
+        log('success', '✓ ' + msg.message);
+      else if (msg.statusCode === 'settings_applied')
+        log('success', '✓ ' + msg.message);
+      else if (msg.statusCode === 'job_completed')
+        log('success', '🎉 ' + msg.message, raw);
+      else
+        log('info', msg.message, raw);
+      break;
+    case 'page_printed':
+      log('page', `Page ${msg.pageNumber} printing completed`);
+      break;
+    case 'error':
+      log('error', '❌ ' + msg.message, raw);
+      break;
+    default:
+      log('warn', 'Unknown type: ' + msg.type, raw);
+  }
+}
+
+// ============ LOGGING ============
+function log(type, text, rawJson = null) {
+  document.getElementById('emptyMsg').style.display = 'none';
+  const logBox = document.getElementById('logBox');
+
+  const map = {
+    info:    { badge: 'INFO',  bc: 'badge-info',    ec: 'log-info' },
+    success: { badge: 'OK',    bc: 'badge-success', ec: 'log-success' },
+    error:   { badge: 'ERROR', bc: 'badge-error',   ec: 'log-error' },
+    warn:    { badge: 'WARN',  bc: 'badge-warn',    ec: 'log-warn' },
+    ws:      { badge: 'WS',    bc: 'badge-ws',      ec: 'log-ws' },
+    page:    { badge: 'PAGE',  bc: 'badge-page',    ec: 'log-page' }
+  };
+
+  const m = map[type] || map.info;
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+             + '.' + String(now.getMilliseconds()).padStart(3, '0');
+
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${m.ec}`;
+
+  let html = `<span class="time">${time}</span>`;
+  html += `<span class="badge ${m.bc}">${m.badge}</span>`;
+  html += `<div><span class="text">${esc(text)}</span>`;
+
+  if (rawJson) {
+    const uid = 'r_' + Date.now() + Math.random().toString(36).slice(2, 7);
+    html += `<br><button class="toggle-raw" onclick="document.getElementById('${uid}').classList.toggle('visible')">▶ Show raw JSON</button>`;
+    html += `<div class="raw-json" id="${uid}">${esc(rawJson)}</div>`;
+  }
+
+  html += '</div>';
+  entry.innerHTML = html;
+  logBox.appendChild(entry);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('logBox').innerHTML = '<div class="empty-log" id="emptyMsg">No messages yet.</div>';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
