@@ -16,28 +16,17 @@ using Docnet.Core.Models;
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
-// MUST be before any middleware that uses WebSockets
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
-// Track active websocket
-WebSocket? _activeSocket = null;
-var _socketLock = new object();
+var _semaphore = new SemaphoreSlim(1, 1); // Ensure one print job at a time
 
-// ============== WEBSOCKET ENDPOINT ==============
 app.Use(async (context, next) =>
 {
     if (context.Request.Path == "/ws" && context.WebSockets.IsWebSocketRequest)
     {
         var ws = await context.WebSockets.AcceptWebSocketAsync();
-        lock (_socketLock) { _activeSocket = ws; }
         Console.WriteLine("🔗 WebSocket connected");
-
         await HandleWebSocket(ws);
-
-        lock (_socketLock)
-        {
-            if (_activeSocket == ws) _activeSocket = null;
-        }
         Console.WriteLine("🔗 WebSocket disconnected");
     }
     else
@@ -46,15 +35,13 @@ app.Use(async (context, next) =>
     }
 });
 
-// Health check (HTTP fallback)
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
-
 app.Run("http://0.0.0.0:8765");
 
 // ============== WEBSOCKET HANDLER ==============
 async Task HandleWebSocket(WebSocket ws)
 {
-    var buffer = new byte[1024 * 64]; // 64KB buffer
+    var buffer = new byte[1024 * 64];
 
     while (ws.State == WebSocketState.Open)
     {
@@ -71,9 +58,7 @@ async Task HandleWebSocket(WebSocket ws)
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                Console.WriteLine($"📨 Received: {message}");
-
-                // Fire and forget so we can keep listening
+                Console.WriteLine($"\n📨 Received message");
                 _ = Task.Run(() => ProcessMessage(ws, message));
             }
         }
@@ -88,28 +73,28 @@ async Task HandleWebSocket(WebSocket ws)
 // ============== MESSAGE PROCESSOR ==============
 async Task ProcessMessage(WebSocket ws, string message)
 {
-    PrintJob? job = null;
+    // Acquire semaphore to prevent concurrent printing
+    await _semaphore.WaitAsync();
+    
     try
     {
-        job = JsonSerializer.Deserialize<PrintJob>(message, new JsonSerializerOptions
+        var job = JsonSerializer.Deserialize<PrintJob>(message, new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
         });
 
         if (job == null || string.IsNullOrWhiteSpace(job.FilePath))
         {
-            await SendWsMessage(ws, WsMessage.Error("Invalid payload: missing or empty file_path"));
+            await SendWsMessage(ws, WsMessage.Error("Invalid payload: missing file_path"));
             return;
         }
 
-        // Validate file exists
         if (!File.Exists(job.FilePath))
         {
             await SendWsMessage(ws, WsMessage.Error($"File not found: {job.FilePath}"));
             return;
         }
 
-        // Validate file type
         var ext = Path.GetExtension(job.FilePath).ToLower();
         if (!new[] { ".pdf", ".txt", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff" }.Contains(ext))
         {
@@ -117,34 +102,42 @@ async Task ProcessMessage(WebSocket ws, string message)
             return;
         }
 
-        // ACK
         await SendWsMessage(ws, WsMessage.CreateStatus("data_received", "Data received successfully"));
-        Console.WriteLine("✅ Data received and validated");
+        Console.WriteLine($"✅ File: {Path.GetFileName(job.FilePath)}");
 
-        // Build full print options with defaults
         var options = BuildPrintOptions(job);
-
-        // Apply settings
-        using var printDoc = new PrintDocument();
-        ApplyPrinterSettings(printDoc, options);
+        
         await SendWsMessage(ws, WsMessage.CreateStatus("settings_applied", "Settings applied successfully"));
-        Console.WriteLine("✅ Settings applied");
+        Console.WriteLine($"✅ Settings prepared");
 
-        // Execute print
-        await ExecutePrint(ws, job.FilePath, options, ext);
+        // Execute print with proper cleanup
+        await ExecutePrintSafe(ws, job.FilePath, options, ext);
 
-        // Success
         await SendWsMessage(ws, WsMessage.CreateStatus("job_completed", "Job completed successfully"));
         Console.WriteLine("✅ Job completed\n");
     }
     catch (Exception ex)
     {
         Console.WriteLine($"❌ Error: {ex.Message}");
-        await SendWsMessage(ws, WsMessage.Error(ex.Message));
+        Console.WriteLine($"Stack: {ex.StackTrace}");
+        await SendWsMessage(ws, WsMessage.Error($"Print failed: {ex.Message}"));
+    }
+    finally
+    {
+        // CRITICAL: Always release the semaphore
+        _semaphore.Release();
+        
+        // Small delay to let spooler fully process
+        await Task.Delay(500);
+        
+        // Force garbage collection to release COM objects
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
     }
 }
 
-// ============== BUILD OPTIONS WITH DEFAULTS ==============
+// ============== BUILD OPTIONS ==============
 PrintOptions BuildPrintOptions(PrintJob job)
 {
     return new PrintOptions
@@ -154,7 +147,6 @@ PrintOptions BuildPrintOptions(PrintJob job)
         Duplex = job.Duplex ?? "simplex",
         PageRange = job.PageRange ?? "all",
         PagesPerSheet = job.PagesPerSheet > 0 ? job.PagesPerSheet : 1,
-        // Defaults applied automatically
         Color = true,
         Orientation = "portrait",
         PaperSize = "A4",
@@ -163,43 +155,42 @@ PrintOptions BuildPrintOptions(PrintJob job)
     };
 }
 
-// ============== PRINT EXECUTION ==============
-async Task ExecutePrint(WebSocket ws, string filePath, PrintOptions options, string ext)
+// ============== SAFE PRINT EXECUTION ==============
+async Task ExecutePrintSafe(WebSocket ws, string filePath, PrintOptions options, string ext)
 {
     switch (ext)
     {
         case ".pdf":
-            await PrintPdf(ws, filePath, options);
+            await PrintPdfSafe(ws, filePath, options);
             break;
         case ".txt":
-            await PrintText(ws, filePath, options);
+            await PrintTextSafe(ws, filePath, options);
             break;
-        default: // images
-            await PrintImage(ws, filePath, options);
+        default:
+            await PrintImageSafe(ws, filePath, options);
             break;
     }
 }
 
-async Task PrintPdf(WebSocket ws, string pdfPath, PrintOptions options)
+async Task PrintPdfSafe(WebSocket ws, string pdfPath, PrintOptions options)
 {
-    var bitmaps = new List<Bitmap>();
-    var pagesToPrint = new List<int>();
-
+    List<Bitmap>? bitmaps = null;
+    DocLib? library = null;
+    
     try
     {
-        using var library = DocLib.Instance;
+        library = DocLib.Instance;
         var dpi = options.Quality;
-
-        // Render at correct DPI based on A4 dimensions (8.27 x 11.69 inches)
         var renderW = (int)(8.27 * dpi);
         var renderH = (int)(11.69 * dpi);
 
         using var docReader = library.GetDocReader(pdfPath, new PageDimensions(renderW, renderH));
         var pageCount = docReader.GetPageCount();
-        pagesToPrint = ParsePageRange(options.PageRange, pageCount);
+        var pagesToPrint = ParsePageRange(options.PageRange, pageCount);
 
-        Console.WriteLine($"📖 PDF: {pageCount} total, printing {pagesToPrint.Count} pages at {dpi} DPI");
+        Console.WriteLine($"📖 PDF: {pagesToPrint.Count}/{pageCount} pages at {dpi} DPI");
 
+        bitmaps = new List<Bitmap>();
         foreach (var pageNum in pagesToPrint)
         {
             using var pageReader = docReader.GetPageReader(pageNum);
@@ -208,226 +199,288 @@ async Task PrintPdf(WebSocket ws, string pdfPath, PrintOptions options)
             var h = pageReader.GetPageHeight();
 
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-            var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, bmp.PixelFormat);
+            var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
             try { Marshal.Copy(rawBytes, 0, data.Scan0, rawBytes.Length); }
             finally { bmp.UnlockBits(data); }
 
             bitmaps.Add(bmp);
         }
 
-        // Print bitmaps with page-by-page WS notifications
-        await PrintBitmaps(ws, bitmaps, options, pagesToPrint);
+        await PrintBitmapsSafe(ws, bitmaps, options, pagesToPrint);
     }
     finally
     {
-        foreach (var bmp in bitmaps) bmp.Dispose();
+        // CRITICAL: Dispose in correct order
+        if (bitmaps != null)
+        {
+            foreach (var bmp in bitmaps)
+            {
+                try { bmp?.Dispose(); } catch { }
+            }
+            bitmaps.Clear();
+        }
+        
+        try { library?.Dispose(); } catch { }
     }
 }
 
-async Task PrintText(WebSocket ws, string textPath, PrintOptions options)
+async Task PrintTextSafe(WebSocket ws, string textPath, PrintOptions options)
 {
     var lines = File.ReadAllLines(textPath);
     var lineIndex = 0;
     var pageNumber = 0;
-
-    using var printDoc = new PrintDocument();
-    ApplyPrinterSettings(printDoc, options);
-
-    // We need sync event handler but async WS sends
-    // Use a list to collect page completions, then send after
     var completedPages = new List<int>();
+    PrintDocument? printDoc = null;
 
-    printDoc.PrintPage += (sender, e) =>
+    try
     {
-        if (e?.Graphics == null) return;
+        printDoc = new PrintDocument();
+        
+        // Apply settings BEFORE attaching events
+        ApplyPrinterSettingsSafe(printDoc, options);
 
-        SetHighQuality(e.Graphics);
-        var font = new Font("Courier New", 10);
-        var yPos = (float)e.MarginBounds.Top;
-        var lineHeight = font.GetHeight(e.Graphics);
-        var linesPerPage = (int)(e.MarginBounds.Height / lineHeight);
-
-        while (lineIndex < lines.Length && linesPerPage > 0)
+        printDoc.PrintPage += (sender, e) =>
         {
-            e.Graphics.DrawString(lines[lineIndex], font, Brushes.Black, e.MarginBounds.Left, yPos);
-            lineIndex++;
-            yPos += lineHeight;
-            linesPerPage--;
+            if (e?.Graphics == null) return;
+
+            SetHighQuality(e.Graphics);
+            var font = new Font("Courier New", 10);
+            var yPos = (float)e.MarginBounds.Top;
+            var lineHeight = font.GetHeight(e.Graphics);
+            var linesPerPage = (int)(e.MarginBounds.Height / lineHeight);
+
+            while (lineIndex < lines.Length && linesPerPage > 0)
+            {
+                e.Graphics.DrawString(lines[lineIndex], font, Brushes.Black, e.MarginBounds.Left, yPos);
+                lineIndex++;
+                yPos += lineHeight;
+                linesPerPage--;
+            }
+
+            pageNumber++;
+            completedPages.Add(pageNumber);
+            e.HasMorePages = lineIndex < lines.Length;
+            
+            font.Dispose();
+        };
+
+        printDoc.Print();
+        
+        // Wait for spooler to accept job
+        await Task.Delay(200);
+
+        foreach (var p in completedPages)
+        {
+            await SendWsMessage(ws, WsMessage.PagePrinted(p));
+            Console.WriteLine($"  ✓ Page {p}");
         }
-
-        pageNumber++;
-        completedPages.Add(pageNumber);
-        e.HasMorePages = lineIndex < lines.Length;
-    };
-
-    printDoc.Print();
-
-    // Send page notifications after print completes
-    foreach (var p in completedPages)
+    }
+    finally
     {
-        await SendWsMessage(ws, WsMessage.PagePrinted(p));
-        Console.WriteLine($"  ✓ Page {p} printed");
+        try { printDoc?.Dispose(); } catch { }
     }
 }
 
-async Task PrintImage(WebSocket ws, string imagePath, PrintOptions options)
+async Task PrintImageSafe(WebSocket ws, string imagePath, PrintOptions options)
 {
-    using var image = Image.FromFile(imagePath);
-    using var printDoc = new PrintDocument();
+    Image? image = null;
+    PrintDocument? printDoc = null;
 
-    ApplyPrinterSettings(printDoc, options);
-
-    printDoc.PrintPage += (sender, e) =>
+    try
     {
-        if (e?.Graphics == null) return;
-        SetHighQuality(e.Graphics);
-        var rect = ScaleImage(image, e.PageBounds, options.Scale);
-        e.Graphics.DrawImage(image, rect);
-        e.HasMorePages = false;
-    };
+        image = Image.FromFile(imagePath);
+        printDoc = new PrintDocument();
 
-    printDoc.Print();
-    await SendWsMessage(ws, WsMessage.PagePrinted(1));
-    Console.WriteLine("  ✓ Page 1 printed");
+        ApplyPrinterSettingsSafe(printDoc, options);
+
+        printDoc.PrintPage += (sender, e) =>
+        {
+            if (e?.Graphics == null) return;
+            SetHighQuality(e.Graphics);
+            var rect = ScaleImage(image, e.PageBounds, options.Scale);
+            e.Graphics.DrawImage(image, rect);
+            e.HasMorePages = false;
+        };
+
+        printDoc.Print();
+        await Task.Delay(200);
+
+        await SendWsMessage(ws, WsMessage.PagePrinted(1));
+        Console.WriteLine("  ✓ Page 1");
+    }
+    finally
+    {
+        try { image?.Dispose(); } catch { }
+        try { printDoc?.Dispose(); } catch { }
+    }
 }
 
-async Task PrintBitmaps(WebSocket ws, List<Bitmap> bitmaps, PrintOptions options, List<int> pageNumbers)
+async Task PrintBitmapsSafe(WebSocket ws, List<Bitmap> bitmaps, PrintOptions options, List<int> pageNumbers)
 {
-    using var printDoc = new PrintDocument();
-    ApplyPrinterSettings(printDoc, options);
-
-    var pageIndex = 0;
-    var pps = options.PagesPerSheet;
-    var completedPages = new List<int>();
-
-    printDoc.PrintPage += (sender, e) =>
+    PrintDocument? printDoc = null;
+    
+    try
     {
-        if (e?.Graphics == null) return;
-        SetHighQuality(e.Graphics);
+        printDoc = new PrintDocument();
+        
+        // Apply settings FIRST
+        ApplyPrinterSettingsSafe(printDoc, options);
 
-        if (pps == 1)
+        var pageIndex = 0;
+        var pps = options.PagesPerSheet;
+        var completedPages = new List<int>();
+
+        printDoc.PrintPage += (sender, e) =>
         {
-            if (pageIndex < bitmaps.Count)
+            if (e?.Graphics == null) return;
+            
+            SetHighQuality(e.Graphics);
+
+            if (pps == 1)
             {
-                var rect = ScaleImage(bitmaps[pageIndex], e.PageBounds, options.Scale);
-                e.Graphics.DrawImage(bitmaps[pageIndex], rect);
-                completedPages.Add(pageNumbers[pageIndex] + 1);
-                pageIndex++;
+                if (pageIndex < bitmaps.Count)
+                {
+                    var rect = ScaleImage(bitmaps[pageIndex], e.PageBounds, options.Scale);
+                    e.Graphics.DrawImage(bitmaps[pageIndex], rect);
+                    completedPages.Add(pageNumbers[pageIndex] + 1);
+                    pageIndex++;
+                    e.HasMorePages = pageIndex < bitmaps.Count;
+                }
+                else { e.HasMorePages = false; }
+            }
+            else
+            {
+                var layout = GetPagesPerSheetLayout(pps, e.PageBounds);
+                var count = Math.Min(pps, bitmaps.Count - pageIndex);
+
+                for (int i = 0; i < count; i++)
+                {
+                    var rect = ScaleImage(bitmaps[pageIndex + i], layout[i], options.Scale);
+                    e.Graphics.DrawImage(bitmaps[pageIndex + i], rect);
+                    completedPages.Add(pageNumbers[pageIndex + i] + 1);
+                }
+
+                pageIndex += count;
                 e.HasMorePages = pageIndex < bitmaps.Count;
             }
-            else { e.HasMorePages = false; }
-        }
-        else
+        };
+
+        printDoc.Print();
+        
+        // Wait for spooler
+        await Task.Delay(200);
+
+        foreach (var p in completedPages)
         {
-            // Multi page per sheet
-            var layout = GetPagesPerSheetLayout(pps, e.PageBounds);
-            var count = Math.Min(pps, bitmaps.Count - pageIndex);
-
-            for (int i = 0; i < count; i++)
-            {
-                var rect = ScaleImage(bitmaps[pageIndex + i], layout[i], options.Scale);
-                e.Graphics.DrawImage(bitmaps[pageIndex + i], rect);
-                completedPages.Add(pageNumbers[pageIndex + i] + 1);
-            }
-
-            pageIndex += count;
-            e.HasMorePages = pageIndex < bitmaps.Count;
+            await SendWsMessage(ws, WsMessage.PagePrinted(p));
+            Console.WriteLine($"  ✓ Page {p}");
         }
-    };
-
-    printDoc.Print();
-
-    // Send per-page notifications after print
-    foreach (var p in completedPages)
+    }
+    finally
     {
-        await SendWsMessage(ws, WsMessage.PagePrinted(p));
-        Console.WriteLine($"  ✓ Page {p} printed");
+        try { printDoc?.Dispose(); } catch { }
     }
 }
 
-// ============== WIN32 PRINTER SETTINGS ==============
-void ApplyPrinterSettings(PrintDocument printDoc, PrintOptions options)
+// ============== PRINTER SETTINGS (SAFE) ==============
+void ApplyPrinterSettingsSafe(PrintDocument printDoc, PrintOptions options)
 {
     printDoc.PrinterSettings.PrinterName = options.PrinterName!;
 
     if (!printDoc.PrinterSettings.IsValid)
         throw new Exception($"Printer not found: {options.PrinterName}");
 
-    Console.WriteLine($"\n--- Applying Settings to: {options.PrinterName} ---");
+    Console.WriteLine($"🖨️  {options.PrinterName}");
 
     IntPtr hPrinter = IntPtr.Zero;
-    if (!Win32.OpenPrinter(options.PrinterName!, out hPrinter, IntPtr.Zero))
-    {
-        Console.WriteLine("⚠️  Win32 OpenPrinter failed, using basic fallback");
-        ApplyBasicSettings(printDoc, options);
-        return;
-    }
+    IntPtr pDevMode = IntPtr.Zero;
 
     try
     {
-        int sizeNeeded = Win32.DocumentProperties(IntPtr.Zero, hPrinter, options.PrinterName!, IntPtr.Zero, IntPtr.Zero, 0);
-        IntPtr pDevMode = Marshal.AllocHGlobal(sizeNeeded);
-
-        try
+        if (!Win32.OpenPrinter(options.PrinterName!, out hPrinter, IntPtr.Zero))
         {
-            Win32.DocumentProperties(IntPtr.Zero, hPrinter, options.PrinterName!, pDevMode, IntPtr.Zero, Win32.DM_OUT_BUFFER);
-            var devMode = Marshal.PtrToStructure<Win32.DEVMODE>(pDevMode);
-
-            // Copies
-            devMode.dmCopies = (short)options.Copies;
-            devMode.dmFields |= Win32.DM_COPIES;
-
-            // Duplex
-            devMode.dmDuplex = options.Duplex?.ToLower() switch
-            {
-                "vertical" or "double" => Win32.DMDUP_VERTICAL,
-                "horizontal" => Win32.DMDUP_HORIZONTAL,
-                _ => Win32.DMDUP_SIMPLEX
-            };
-            devMode.dmFields |= Win32.DM_DUPLEX;
-
-            // Color
-            devMode.dmColor = options.Color ? Win32.DMCOLOR_COLOR : Win32.DMCOLOR_MONOCHROME;
-            devMode.dmFields |= Win32.DM_COLOR;
-
-            // Orientation
-            devMode.dmOrientation = options.Orientation?.ToLower() == "landscape"
-                ? Win32.DMORIENT_LANDSCAPE : Win32.DMORIENT_PORTRAIT;
-            devMode.dmFields |= Win32.DM_ORIENTATION;
-
-            // DPI / Quality
-            devMode.dmPrintQuality = (short)options.Quality;
-            devMode.dmYResolution = (short)options.Quality;
-            devMode.dmFields |= Win32.DM_PRINTQUALITY;
-            devMode.dmFields |= Win32.DM_YRESOLUTION;
-
-            Marshal.StructureToPtr(devMode, pDevMode, true);
-
-            int result = Win32.DocumentProperties(IntPtr.Zero, hPrinter, options.PrinterName!,
-                pDevMode, pDevMode, Win32.DM_IN_BUFFER | Win32.DM_OUT_BUFFER);
-
-            if (result >= 0)
-            {
-                printDoc.PrinterSettings.SetHdevmode(pDevMode);
-                printDoc.DefaultPageSettings.SetHdevmode(pDevMode);
-                Console.WriteLine($"  ✓ Copies: {options.Copies}");
-                Console.WriteLine($"  ✓ Duplex: {options.Duplex}");
-                Console.WriteLine($"  ✓ Color: {options.Color}");
-                Console.WriteLine($"  ✓ Quality: {options.Quality} DPI");
-                Console.WriteLine($"  ✓ Pages/Sheet: {options.PagesPerSheet}");
-                Console.WriteLine("  ✓ Win32 settings applied");
-            }
-            else
-            {
-                Console.WriteLine($"⚠️  DocumentProperties returned {result}, using basic fallback");
-                ApplyBasicSettings(printDoc, options);
-            }
+            Console.WriteLine("⚠️  Using basic fallback");
+            ApplyBasicSettings(printDoc, options);
+            return;
         }
-        finally { Marshal.FreeHGlobal(pDevMode); }
-    }
-    finally { Win32.ClosePrinter(hPrinter); }
 
-    Console.WriteLine("--- Settings Applied ---\n");
+        int sizeNeeded = Win32.DocumentProperties(IntPtr.Zero, hPrinter, options.PrinterName!, IntPtr.Zero, IntPtr.Zero, 0);
+        if (sizeNeeded <= 0)
+        {
+            Console.WriteLine("⚠️  DEVMODE size failed, using fallback");
+            ApplyBasicSettings(printDoc, options);
+            return;
+        }
+
+        pDevMode = Marshal.AllocHGlobal(sizeNeeded);
+
+        int result = Win32.DocumentProperties(IntPtr.Zero, hPrinter, options.PrinterName!, pDevMode, IntPtr.Zero, Win32.DM_OUT_BUFFER);
+        if (result < 0)
+        {
+            Console.WriteLine("⚠️  DM_OUT_BUFFER failed, using fallback");
+            ApplyBasicSettings(printDoc, options);
+            return;
+        }
+
+        var devMode = Marshal.PtrToStructure<Win32.DEVMODE>(pDevMode);
+
+        devMode.dmCopies = (short)options.Copies;
+        devMode.dmFields |= Win32.DM_COPIES;
+
+        devMode.dmDuplex = options.Duplex?.ToLower() switch
+        {
+            "vertical" or "double" => Win32.DMDUP_VERTICAL,
+            "horizontal" => Win32.DMDUP_HORIZONTAL,
+            _ => Win32.DMDUP_SIMPLEX
+        };
+        devMode.dmFields |= Win32.DM_DUPLEX;
+
+        devMode.dmColor = options.Color ? Win32.DMCOLOR_COLOR : Win32.DMCOLOR_MONOCHROME;
+        devMode.dmFields |= Win32.DM_COLOR;
+
+        devMode.dmOrientation = options.Orientation?.ToLower() == "landscape"
+            ? Win32.DMORIENT_LANDSCAPE : Win32.DMORIENT_PORTRAIT;
+        devMode.dmFields |= Win32.DM_ORIENTATION;
+
+        devMode.dmPrintQuality = (short)options.Quality;
+        devMode.dmYResolution = (short)options.Quality;
+        devMode.dmFields |= Win32.DM_PRINTQUALITY;
+        devMode.dmFields |= Win32.DM_YRESOLUTION;
+
+        Marshal.StructureToPtr(devMode, pDevMode, true);
+
+        result = Win32.DocumentProperties(IntPtr.Zero, hPrinter, options.PrinterName!,
+            pDevMode, pDevMode, Win32.DM_IN_BUFFER | Win32.DM_OUT_BUFFER);
+
+        if (result >= 0)
+        {
+            printDoc.PrinterSettings.SetHdevmode(pDevMode);
+            printDoc.DefaultPageSettings.SetHdevmode(pDevMode);
+            Console.WriteLine($"  ✓ Copies: {options.Copies}, Duplex: {options.Duplex}, Quality: {options.Quality} DPI");
+        }
+        else
+        {
+            Console.WriteLine($"⚠️  DM_IN_BUFFER returned {result}, using fallback");
+            ApplyBasicSettings(printDoc, options);
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠️  Win32 error: {ex.Message}, using fallback");
+        ApplyBasicSettings(printDoc, options);
+    }
+    finally
+    {
+        // CRITICAL: Always free resources
+        if (pDevMode != IntPtr.Zero)
+        {
+            try { Marshal.FreeHGlobal(pDevMode); } catch { }
+        }
+        if (hPrinter != IntPtr.Zero)
+        {
+            try { Win32.ClosePrinter(hPrinter); } catch { }
+        }
+    }
 }
 
 void ApplyBasicSettings(PrintDocument printDoc, PrintOptions options)
@@ -441,6 +494,7 @@ void ApplyBasicSettings(PrintDocument printDoc, PrintOptions options)
         _ => Duplex.Simplex
     };
     printDoc.DefaultPageSettings.Landscape = options.Orientation?.ToLower() == "landscape";
+    Console.WriteLine("  ✓ Basic settings applied");
 }
 
 // ============== WEBSOCKET HELPERS ==============
@@ -455,10 +509,7 @@ async Task SendWsMessage(WebSocket ws, WsMessage msg)
     {
         await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
     }
-    catch (WebSocketException ex)
-    {
-        Console.WriteLine($"❌ Failed to send WS message: {ex.Message}");
-    }
+    catch { }
 }
 
 // ============== RENDERING HELPERS ==============
@@ -472,11 +523,8 @@ void SetHighQuality(Graphics g)
 
 Rectangle ScaleImage(Image image, Rectangle pageRect, string? scaleMode)
 {
-    float scale;
-    if (scaleMode?.ToLower() == "actual")
-        scale = 1.0f;
-    else
-        scale = Math.Min((float)pageRect.Width / image.Width, (float)pageRect.Height / image.Height);
+    float scale = scaleMode?.ToLower() == "actual" ? 1.0f :
+        Math.Min((float)pageRect.Width / image.Width, (float)pageRect.Height / image.Height);
 
     var newW = (int)(image.Width * scale);
     var newH = (int)(image.Height * scale);
