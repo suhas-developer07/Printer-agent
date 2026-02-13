@@ -12,6 +12,8 @@
   <ItemGroup>
     <PackageReference Include="Docnet.Core" Version="2.6.0" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.2" />
   </ItemGroup>
 
 </Project>

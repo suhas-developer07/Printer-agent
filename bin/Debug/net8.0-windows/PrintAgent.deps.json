@@ -9,7 +9,9 @@
       "PrintAgent/1.0.0": {
         "dependencies": {
           "Docnet.Core": "2.6.0",
-          "System.Drawing.Common": "8.0.0"
+          "Lextm.SharpSnmpLib": "12.5.2",
+          "System.Drawing.Common": "8.0.0",
+          "System.Management": "8.0.0"
         },
         "runtime": {
           "PrintAgent.dll": {}
@@ -95,10 +97,38 @@
           }
         }
       },
+      "Lextm.SharpSnmpLib/12.5.2": {
+        "runtime": {
+          "lib/net6.0/SharpSnmpLib.dll": {
+            "assemblyVersion": "12.5.2.0",
+            "fileVersion": "12.5.2.0"
+          }
+        }
+      },
       "Microsoft.Win32.SystemEvents/8.0.0": {},
+      "System.CodeDom/8.0.0": {},
       "System.Drawing.Common/8.0.0": {
         "dependencies": {
           "Microsoft.Win32.SystemEvents": "8.0.0"
+        }
+      },
+      "System.Management/8.0.0": {
+        "dependencies": {
+          "System.CodeDom": "8.0.0"
+        },
+        "runtime": {
+          "lib/net8.0/System.Management.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.23.53103"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net8.0/System.Management.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.23.53103"
+          }
         }
       }
     }
@@ -116,6 +146,13 @@
       "path": "docnet.core/2.6.0",
       "hashPath": "docnet.core.2.6.0.nupkg.sha512"
     },
+    "Lextm.SharpSnmpLib/12.5.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-rWPyrB7klKxbuM/2wAQBgFk71XpERJt6uSRI27tCpMePidqbRD5whfFCXMeO0MlhUwqBmTZn7PoL6YnQLdZy1Q==",
+      "path": "lextm.sharpsnmplib/12.5.2",
+      "hashPath": "lextm.sharpsnmplib.12.5.2.nupkg.sha512"
+    },
     "Microsoft.Win32.SystemEvents/8.0.0": {
       "type": "package",
       "serviceable": true,
@@ -123,12 +160,26 @@
       "path": "microsoft.win32.systemevents/8.0.0",
       "hashPath": "microsoft.win32.systemevents.8.0.0.nupkg.sha512"
     },
+    "System.CodeDom/8.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-WTlRjL6KWIMr/pAaq3rYqh0TJlzpouaQ/W1eelssHgtlwHAH25jXTkUphTYx9HaIIf7XA6qs/0+YhtLEQRkJ+Q==",
+      "path": "system.codedom/8.0.0",
+      "hashPath": "system.codedom.8.0.0.nupkg.sha512"
+    },
     "System.Drawing.Common/8.0.0": {
       "type": "package",
       "serviceable": true,
       "sha512": "sha512-JkbHJjtI/dWc5dfmEdJlbe3VwgZqCkZRtfuWFh5GOv0f+gGCfBtzMpIVkmdkj2AObO9y+oiOi81UGwH3aBYuqA==",
       "path": "system.drawing.common/8.0.0",
       "hashPath": "system.drawing.common.8.0.0.nupkg.sha512"
+    },
+    "System.Management/8.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-jrK22i5LRzxZCfGb+tGmke2VH7oE0DvcDlJ1HAKYU8cPmD8XnpUT0bYn2Gy98GEhGjtfbR/sxKTVb+dE770pfA==",
+      "path": "system.management/8.0.0",
+      "hashPath": "system.management.8.0.0.nupkg.sha512"
     }
   }
 }

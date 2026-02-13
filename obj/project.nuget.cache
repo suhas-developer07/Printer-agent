@@ -1,12 +1,15 @@
 {
   "version": 2,
-  "dgSpecHash": "yLI/vvzHws0=",
+  "dgSpecHash": "wHc5rkK1m88=",
   "success": true,
   "projectFilePath": "C:\\Users\\SUHAS S\\PrintAgent\\PrintAgent.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\SUHAS S\\.nuget\\packages\\docnet.core\\2.6.0\\docnet.core.2.6.0.nupkg.sha512",
+    "C:\\Users\\SUHAS S\\.nuget\\packages\\lextm.sharpsnmplib\\12.5.2\\lextm.sharpsnmplib.12.5.2.nupkg.sha512",
     "C:\\Users\\SUHAS S\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
-    "C:\\Users\\SUHAS S\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512"
+    "C:\\Users\\SUHAS S\\.nuget\\packages\\system.codedom\\8.0.0\\system.codedom.8.0.0.nupkg.sha512",
+    "C:\\Users\\SUHAS S\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512",
+    "C:\\Users\\SUHAS S\\.nuget\\packages\\system.management\\8.0.0\\system.management.8.0.0.nupkg.sha512"
   ],
   "logs": []
 }

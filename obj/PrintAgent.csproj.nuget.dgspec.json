@@ -47,7 +47,15 @@
               "target": "Package",
               "version": "[2.6.0, )"
             },
+            "Lextm.SharpSnmpLib": {
+              "target": "Package",
+              "version": "[12.5.2, )"
+            },
             "System.Drawing.Common": {
+              "target": "Package",
+              "version": "[8.0.0, )"
+            },
+            "System.Management": {
               "target": "Package",
               "version": "[8.0.0, )"
             }
@@ -74,7 +82,7 @@
               "privateAssets": "none"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.417/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.418/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

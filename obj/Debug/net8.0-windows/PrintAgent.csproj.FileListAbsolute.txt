@@ -41,3 +41,6 @@ C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\runtimes\osx-x64\native\LIC
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\runtimes\osx-x64\native\pdfium.dylib
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\runtimes\win-x64\native\LICENSE
 C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\runtimes\win-x86\native\LICENSE
+C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\System.Management.dll
+C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Management.dll
+C:\Users\SUHAS S\PrintAgent\bin\Debug\net8.0-windows\SharpSnmpLib.dll
